@@ -662,7 +662,7 @@ public partial class Form1 : Form
         string script = @"
 (function() {
     try {
-        // 여러 패턴의 확인 버튼 찾기
+        var debugInfo = [];
         var confirmBtn = null;
 
         // 패턴 1: ID로 찾기
@@ -671,39 +671,92 @@ public partial class Form1 : Form
             'wfm_side_messageConfirm',
             'messageConfirm',
             'btnConfirm',
-            'btnOk'
+            'btnOk',
+            'wfm_side_message',
+            'wfm_layer'
         ];
 
         for (var i = 0; i < btnPatterns.length; i++) {
-            confirmBtn = document.getElementById(btnPatterns[i]);
-            if (confirmBtn) {
+            var btn = document.getElementById(btnPatterns[i]);
+            if (btn) {
+                confirmBtn = btn;
                 confirmBtn.click();
                 return JSON.stringify({
                     success: true,
-                    message: '확인 버튼 클릭 완료',
+                    message: '확인 버튼 클릭 완료 (ID)',
                     buttonId: btnPatterns[i]
                 });
             }
         }
 
-        // 패턴 2: 텍스트로 찾기
-        var buttons = document.querySelectorAll('button, input[type=""button""], a, span');
-        for (var i = 0; i < buttons.length; i++) {
-            var btnText = buttons[i].value || buttons[i].textContent.trim();
-            if (btnText === '확인' || btnText === 'OK' || btnText === '닫기') {
-                buttons[i].click();
-                return JSON.stringify({
-                    success: true,
-                    message: '확인 버튼 클릭 완료 (텍스트 검색)',
-                    buttonText: btnText
-                });
+        // 패턴 2: 모든 가시적인 버튼 찾기
+        var allButtons = document.querySelectorAll('button, input[type=""button""], a, span, div');
+        var visibleButtons = [];
+
+        for (var i = 0; i < allButtons.length; i++) {
+            var btn = allButtons[i];
+            var style = window.getComputedStyle(btn);
+
+            // 보이는 요소만 확인
+            if (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') {
+                var btnText = (btn.value || btn.textContent || btn.innerText || '').trim();
+
+                if (btnText) {
+                    visibleButtons.push({
+                        tag: btn.tagName,
+                        id: btn.id || '',
+                        class: btn.className || '',
+                        text: btnText.substring(0, 50),
+                        display: style.display,
+                        visibility: style.visibility
+                    });
+
+                    // '확인' 텍스트 찾기 (완전 일치 또는 포함)
+                    if (btnText === '확인' || btnText === 'OK' || btnText === '닫기' ||
+                        btnText.indexOf('확인') >= 0) {
+                        btn.click();
+                        return JSON.stringify({
+                            success: true,
+                            message: '확인 버튼 클릭 완료 (텍스트)',
+                            buttonText: btnText,
+                            buttonId: btn.id || '(no id)',
+                            buttonClass: btn.className || '(no class)'
+                        });
+                    }
+                }
+            }
+        }
+
+        // 패턴 3: iframe 내부 확인
+        var iframes = document.querySelectorAll('iframe');
+        for (var i = 0; i < iframes.length; i++) {
+            try {
+                var iframeDoc = iframes[i].contentDocument || iframes[i].contentWindow.document;
+                var iframeButtons = iframeDoc.querySelectorAll('button, input[type=""button""], a, span');
+
+                for (var j = 0; j < iframeButtons.length; j++) {
+                    var btn = iframeButtons[j];
+                    var btnText = (btn.value || btn.textContent || '').trim();
+
+                    if (btnText === '확인' || btnText === 'OK' || btnText === '닫기') {
+                        btn.click();
+                        return JSON.stringify({
+                            success: true,
+                            message: '확인 버튼 클릭 완료 (iframe)',
+                            buttonText: btnText
+                        });
+                    }
+                }
+            } catch (e) {
+                // iframe 접근 불가 (CORS)
             }
         }
 
         return JSON.stringify({
             success: false,
             message: '확인 버튼을 찾을 수 없습니다',
-            totalButtons: buttons.length
+            totalButtons: allButtons.length,
+            visibleButtons: visibleButtons.slice(0, 20)
         });
     } catch (ex) {
         return JSON.stringify({ success: false, message: ex.message });
@@ -735,6 +788,29 @@ public partial class Form1 : Form
                     if (response.TryGetProperty("message", out var messageProp))
                     {
                         LogMessage($"팝업 처리: {messageProp.GetString()}");
+                    }
+
+                    // 실패한 경우 디버그 정보 출력
+                    if (!success && response.TryGetProperty("visibleButtons", out var visibleButtonsProp))
+                    {
+                        LogMessage("\n[발견된 버튼 목록]");
+                        var buttons = visibleButtonsProp.EnumerateArray().ToList();
+                        for (int i = 0; i < Math.Min(buttons.Count, 10); i++)
+                        {
+                            var btn = buttons[i];
+                            if (btn.TryGetProperty("text", out var text) &&
+                                btn.TryGetProperty("tag", out var tag))
+                            {
+                                var id = btn.TryGetProperty("id", out var idProp) ? idProp.GetString() : "";
+                                var className = btn.TryGetProperty("class", out var classProp) ? classProp.GetString() : "";
+                                LogMessage($"  {i + 1}. <{tag.GetString()}> id=\"{id}\" class=\"{className}\" → {text.GetString()}");
+                            }
+                        }
+
+                        if (response.TryGetProperty("totalButtons", out var totalProp))
+                        {
+                            LogMessage($"\n총 버튼 개수: {totalProp.GetInt32()}");
+                        }
                     }
                 }
             }
