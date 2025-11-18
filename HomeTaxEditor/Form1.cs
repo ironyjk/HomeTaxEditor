@@ -515,6 +515,18 @@ public partial class Form1 : Form
                                 {
                                     LogMessage($"  - ID: {saveBtnId.GetString()}");
                                 }
+                                if (item.TryGetProperty("saveBtnText", out var saveBtnText))
+                                {
+                                    LogMessage($"  - 텍스트: {saveBtnText.GetString()}");
+                                }
+                                if (item.TryGetProperty("saveBtnClicked", out var saveBtnClicked))
+                                {
+                                    LogMessage($"  - 클릭됨: {saveBtnClicked.GetBoolean()}");
+                                }
+                                if (item.TryGetProperty("allButtonCount", out var allButtonCount))
+                                {
+                                    LogMessage($"  - 전체 버튼 개수: {allButtonCount.GetInt32()}");
+                                }
                             }
                             // 행 정보인 경우
                             else if (item.TryGetProperty("rowIndex", out var rowIndex))
@@ -550,6 +562,25 @@ public partial class Form1 : Form
                         LogMessage("");
                     }
 
+                    // 저장 버튼 클릭 (JavaScript에서 찾은 버튼 ID 사용)
+                    if (response.TryGetProperty("debugInfo", out var debugInfoForSave))
+                    {
+                        var debugArray2 = debugInfoForSave.EnumerateArray().ToList();
+                        foreach (var item in debugArray2)
+                        {
+                            if (item.TryGetProperty("saveBtnFound", out var found) && found.GetBoolean())
+                            {
+                                if (item.TryGetProperty("saveBtnId", out var btnId))
+                                {
+                                    string saveButtonId = btnId.GetString() ?? "";
+                                    LogMessage($"저장 버튼 클릭 중... (ID: {saveButtonId})");
+                                    await ClickSaveButtonById(saveButtonId);
+                                }
+                                break;
+                            }
+                        }
+                    }
+
                     return successCount;
                 }
             }
@@ -560,6 +591,64 @@ public partial class Form1 : Form
         }
 
         return 0;
+    }
+
+    private async Task ClickSaveButtonById(string buttonId)
+    {
+        string script = $@"
+(function() {{
+    try {{
+        var saveBtn = document.getElementById('{buttonId}');
+        if (saveBtn) {{
+            saveBtn.click();
+            return JSON.stringify({{ success: true, message: '저장 버튼 클릭 완료' }});
+        }} else {{
+            return JSON.stringify({{ success: false, message: '저장 버튼을 찾을 수 없습니다' }});
+        }}
+    }} catch (ex) {{
+        return JSON.stringify({{ success: false, message: ex.message }});
+    }}
+}})();
+";
+
+        try
+        {
+            var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+
+            // JSON 파싱
+            string cleanJson;
+            if (result?.StartsWith("\"") == true)
+            {
+                cleanJson = JsonSerializer.Deserialize<string>(result);
+            }
+            else
+            {
+                cleanJson = result;
+            }
+
+            if (!string.IsNullOrEmpty(cleanJson))
+            {
+                var response = JsonSerializer.Deserialize<JsonElement>(cleanJson);
+                if (response.TryGetProperty("success", out var successProp))
+                {
+                    bool success = successProp.GetBoolean();
+                    if (response.TryGetProperty("message", out var messageProp))
+                    {
+                        LogMessage($"저장 결과: {messageProp.GetString()}");
+                    }
+
+                    if (success)
+                    {
+                        // 저장 처리를 위해 2초 대기
+                        await Task.Delay(2000);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"저장 버튼 클릭 오류: {ex.Message}");
+        }
     }
 
     private async Task ClickSaveButton()

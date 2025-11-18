@@ -217,14 +217,18 @@ public class ScriptGenerator
             debugInfo.push(info);
         }}
 
-        // 결과를 변수에 저장
-        var result = {{
-            successCount: successCount,
-            debugInfo: debugInfo
+        // 저장 버튼 찾기 정보를 debugInfo에 추가
+        var saveBtnInfo = {{
+            saveBtnFound: false,
+            saveBtnId: '',
+            saveBtnText: '',
+            saveBtnClicked: false,
+            allButtonCount: 0
         }};
 
-        // 저장 버튼 찾기 (return 전에 클릭 시작)
+        // 저장 버튼 찾기
         var saveBtnPatterns = [
+            'mf_txppWframe_trigger19',
             'mf_txppWframe_btnReg',
             'btnSave',
             'btnReg'
@@ -233,32 +237,62 @@ public class ScriptGenerator
         var saveBtn = null;
         for (var p = 0; p < saveBtnPatterns.length; p++) {{
             saveBtn = document.getElementById(saveBtnPatterns[p]);
-            if (saveBtn) break;
+            if (saveBtn) {{
+                saveBtnInfo.saveBtnFound = true;
+                saveBtnInfo.saveBtnId = saveBtnPatterns[p];
+                saveBtnInfo.saveBtnText = saveBtn.value || saveBtn.textContent.trim();
+                break;
+            }}
         }}
 
         if (!saveBtn) {{
-            // 텍스트로 찾기
-            var buttons = document.querySelectorAll('button, a, span');
-            for (var i = 0; i < buttons.length; i++) {{
-                var btnText = buttons[i].textContent.trim();
-                if (btnText === '저장' || btnText === '등록') {{
-                    saveBtn = buttons[i];
+            // ID가 mf_txppWframe_trigger로 시작하는 버튼 찾기
+            var allInputs = document.querySelectorAll('input[type=""button""]');
+            for (var i = 0; i < allInputs.length; i++) {{
+                if (allInputs[i].id && allInputs[i].id.indexOf('mf_txppWframe_trigger') >= 0) {{
+                    saveBtn = allInputs[i];
+                    saveBtnInfo.saveBtnFound = true;
+                    saveBtnInfo.saveBtnId = saveBtn.id;
+                    saveBtnInfo.saveBtnText = saveBtn.value || '';
                     break;
                 }}
             }}
         }}
 
-        // 결과를 먼저 반환 (페이지 리로드 전에)
-        var resultJson = JSON.stringify(result);
+        if (!saveBtn) {{
+            // 텍스트로 찾기
+            var buttons = document.querySelectorAll('button, a, span, input[type=""button""]');
+            saveBtnInfo.allButtonCount = buttons.length;
 
-        // 저장 버튼 클릭 (return 후에 실행되도록 setTimeout 사용)
-        if (saveBtn) {{
-            setTimeout(function() {{
-                saveBtn.click();
-            }}, 100);
+            for (var i = 0; i < buttons.length; i++) {{
+                var btnText = buttons[i].value || buttons[i].textContent.trim();
+                if (btnText === '저장' || btnText === '등록' || btnText === '변경하기') {{
+                    saveBtn = buttons[i];
+                    saveBtnInfo.saveBtnFound = true;
+                    saveBtnInfo.saveBtnId = saveBtn.id || '(found by text)';
+                    saveBtnInfo.saveBtnText = btnText;
+                    break;
+                }}
+            }}
         }}
 
-        return resultJson;
+        // 저장 버튼 정보만 수집 (클릭은 C#에서 별도로)
+        if (saveBtn) {{
+            console.log('[DEBUG] 저장 버튼 찾음:', saveBtnInfo.saveBtnId, saveBtnInfo.saveBtnText);
+            saveBtnInfo.saveBtnClicked = false; // C#에서 클릭할 예정
+        }} else {{
+            console.log('[DEBUG] 저장 버튼을 찾을 수 없음. 전체 버튼 개수:', saveBtnInfo.allButtonCount);
+        }}
+
+        debugInfo.push(saveBtnInfo);
+
+        // 결과 반환
+        var result = {{
+            successCount: successCount,
+            debugInfo: debugInfo
+        }};
+
+        return JSON.stringify(result);
 
     }} catch (ex) {{
         return JSON.stringify({{
