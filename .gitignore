@@ -60,3 +60,6 @@ $RECYCLE.BIN/
 
 # WebView2 cache
 **/WebView2/
+
+# Claude Code settings
+.claude/settings.local.json
