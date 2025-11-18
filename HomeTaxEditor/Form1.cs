@@ -679,8 +679,31 @@ public partial class Form1 : Form
         for (var i = 0; i < btnPatterns.length; i++) {
             var btn = document.getElementById(btnPatterns[i]);
             if (btn) {
-                confirmBtn = btn;
-                confirmBtn.click();
+                // 실제 마우스 클릭 이벤트 발생
+                var clickEvent = new MouseEvent('click', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true,
+                    buttons: 1
+                });
+                btn.dispatchEvent(clickEvent);
+
+                var mousedownEvent = new MouseEvent('mousedown', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true,
+                    buttons: 1
+                });
+                var mouseupEvent = new MouseEvent('mouseup', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true,
+                    buttons: 1
+                });
+                btn.dispatchEvent(mousedownEvent);
+                btn.dispatchEvent(mouseupEvent);
+                btn.click();
+
                 return JSON.stringify({
                     success: true,
                     message: '확인 버튼 클릭 완료 (ID)',
@@ -714,7 +737,35 @@ public partial class Form1 : Form
                     // '확인' 텍스트 찾기 (완전 일치 또는 포함)
                     if (btnText === '확인' || btnText === 'OK' || btnText === '닫기' ||
                         btnText.indexOf('확인') >= 0) {
+
+                        // 실제 마우스 클릭 이벤트 발생
+                        var clickEvent = new MouseEvent('click', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true,
+                            buttons: 1
+                        });
+                        btn.dispatchEvent(clickEvent);
+
+                        // 추가로 mousedown, mouseup 이벤트도 발생
+                        var mousedownEvent = new MouseEvent('mousedown', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true,
+                            buttons: 1
+                        });
+                        var mouseupEvent = new MouseEvent('mouseup', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true,
+                            buttons: 1
+                        });
+                        btn.dispatchEvent(mousedownEvent);
+                        btn.dispatchEvent(mouseupEvent);
+
+                        // 기본 click도 시도
                         btn.click();
+
                         return JSON.stringify({
                             success: true,
                             message: '확인 버튼 클릭 완료 (텍스트)',
@@ -739,7 +790,31 @@ public partial class Form1 : Form
                     var btnText = (btn.value || btn.textContent || '').trim();
 
                     if (btnText === '확인' || btnText === 'OK' || btnText === '닫기') {
+                        // 실제 마우스 클릭 이벤트 발생
+                        var clickEvent = new MouseEvent('click', {
+                            view: iframeDoc.defaultView || window,
+                            bubbles: true,
+                            cancelable: true,
+                            buttons: 1
+                        });
+                        btn.dispatchEvent(clickEvent);
+
+                        var mousedownEvent = new MouseEvent('mousedown', {
+                            view: iframeDoc.defaultView || window,
+                            bubbles: true,
+                            cancelable: true,
+                            buttons: 1
+                        });
+                        var mouseupEvent = new MouseEvent('mouseup', {
+                            view: iframeDoc.defaultView || window,
+                            bubbles: true,
+                            cancelable: true,
+                            buttons: 1
+                        });
+                        btn.dispatchEvent(mousedownEvent);
+                        btn.dispatchEvent(mouseupEvent);
                         btn.click();
+
                         return JSON.stringify({
                             success: true,
                             message: '확인 버튼 클릭 완료 (iframe)',
