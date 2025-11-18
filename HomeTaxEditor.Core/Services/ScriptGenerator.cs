@@ -99,13 +99,13 @@ public class ScriptGenerator
         }).ToList());
 
         return $@"
-(async function() {{
+(function() {{
     try {{
         var changes = {changesJson};
         var successCount = 0;
         var debugInfo = [];
 
-        // 각 행을 순차적으로 처리 (비동기)
+        // 각 행을 처리
         for (var i = 0; i < changes.length; i++) {{
             var change = changes[i];
             var rowIndex = change.rowIndex;
@@ -155,9 +155,6 @@ public class ScriptGenerator
             if (checkbox) {{
                 // 실제 클릭 이벤트 발생 (onclick 핸들러 실행)
                 checkbox.click();
-
-                // 체크박스 클릭 후 드롭다운이 활성화될 때까지 대기 (300ms)
-                await new Promise(resolve => setTimeout(resolve, 300));
             }}
 
             // select 박스 찾기 - 여러 패턴 및 컬럼 인덱스 시도

@@ -639,8 +639,14 @@ public partial class Form1 : Form
 
                     if (success)
                     {
-                        // 저장 처리를 위해 2초 대기
-                        await Task.Delay(2000);
+                        // 저장 처리 및 팝업 대기 (1초)
+                        await Task.Delay(1000);
+
+                        // "변경이 완료되었습니다" 팝업의 확인 버튼 클릭
+                        await ClickConfirmPopup();
+
+                        // 팝업 닫힌 후 추가 대기 (0.5초)
+                        await Task.Delay(500);
                     }
                 }
             }
@@ -648,6 +654,94 @@ public partial class Form1 : Form
         catch (Exception ex)
         {
             LogMessage($"저장 버튼 클릭 오류: {ex.Message}");
+        }
+    }
+
+    private async Task ClickConfirmPopup()
+    {
+        string script = @"
+(function() {
+    try {
+        // 여러 패턴의 확인 버튼 찾기
+        var confirmBtn = null;
+
+        // 패턴 1: ID로 찾기
+        var btnPatterns = [
+            'scwin_wfm_side_messageConfirm',
+            'wfm_side_messageConfirm',
+            'messageConfirm',
+            'btnConfirm',
+            'btnOk'
+        ];
+
+        for (var i = 0; i < btnPatterns.length; i++) {
+            confirmBtn = document.getElementById(btnPatterns[i]);
+            if (confirmBtn) {
+                confirmBtn.click();
+                return JSON.stringify({
+                    success: true,
+                    message: '확인 버튼 클릭 완료',
+                    buttonId: btnPatterns[i]
+                });
+            }
+        }
+
+        // 패턴 2: 텍스트로 찾기
+        var buttons = document.querySelectorAll('button, input[type=""button""], a, span');
+        for (var i = 0; i < buttons.length; i++) {
+            var btnText = buttons[i].value || buttons[i].textContent.trim();
+            if (btnText === '확인' || btnText === 'OK' || btnText === '닫기') {
+                buttons[i].click();
+                return JSON.stringify({
+                    success: true,
+                    message: '확인 버튼 클릭 완료 (텍스트 검색)',
+                    buttonText: btnText
+                });
+            }
+        }
+
+        return JSON.stringify({
+            success: false,
+            message: '확인 버튼을 찾을 수 없습니다',
+            totalButtons: buttons.length
+        });
+    } catch (ex) {
+        return JSON.stringify({ success: false, message: ex.message });
+    }
+})();
+";
+
+        try
+        {
+            var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+
+            // JSON 파싱
+            string cleanJson;
+            if (result?.StartsWith("\"") == true)
+            {
+                cleanJson = JsonSerializer.Deserialize<string>(result);
+            }
+            else
+            {
+                cleanJson = result;
+            }
+
+            if (!string.IsNullOrEmpty(cleanJson))
+            {
+                var response = JsonSerializer.Deserialize<JsonElement>(cleanJson);
+                if (response.TryGetProperty("success", out var successProp))
+                {
+                    bool success = successProp.GetBoolean();
+                    if (response.TryGetProperty("message", out var messageProp))
+                    {
+                        LogMessage($"팝업 처리: {messageProp.GetString()}");
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"팝업 클릭 오류: {ex.Message}");
         }
     }
 
