@@ -43,6 +43,9 @@ public class ScriptGenerator
             // 상호명(가맹점명)
             var mrntNmCell = tr.querySelector('[data-col_id=""mrntTxprNm""]');
 
+            // 가맹점유형 (간이과세자, 법인사업자 등)
+            var mrntTypCell = tr.querySelector('[data-col_id=""bmanClNm""]');
+
             var amountCell = tr.querySelector('[data-col_id=""totaTrsAmt""]');
             var ddcCell = tr.querySelector('[data-col_id=""viewDdcYnNm""]');
 
@@ -54,6 +57,7 @@ public class ScriptGenerator
             var cardNo = cardNoCell.textContent.trim();
             var bizNo = bizNoCell.textContent.trim();
             var mrntNm = mrntNmCell ? mrntNmCell.textContent.trim() : '';
+            var mrntTyp = mrntTypCell ? mrntTypCell.textContent.trim() : '';
             var amountText = amountCell.textContent.trim().replace(/,/g, '');
             var currentDdc = ddcCell ? ddcCell.textContent.trim() : '';
 
@@ -65,6 +69,7 @@ public class ScriptGenerator
                 busnCrdCardNoEncCntn: cardNo,
                 mrntTxprDscmNoEncCntn: bizNo,
                 mrntNm: mrntNm,
+                mrntTyp: mrntTyp,
                 totaTrsAmt: amount,
                 currentDdcYnNm: currentDdc
             });

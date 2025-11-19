@@ -10,6 +10,7 @@ public class WebTableRow
     public string BusnCrdCardNoEncCntn { get; set; } = "";
     public string MrntTxprDscmNoEncCntn { get; set; } = "";
     public string MrntNm { get; set; } = ""; // 가맹점명(상호명)
+    public string MrntTyp { get; set; } = ""; // 가맹점유형 (간이과세자 등)
     public decimal TotaTrsAmt { get; set; }
     public string CurrentDdcYnNm { get; set; } = "";
 

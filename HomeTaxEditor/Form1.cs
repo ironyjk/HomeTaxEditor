@@ -3,6 +3,9 @@ using System.Text.Json;
 using System.Data;
 using HomeTaxEditor.Core.Services;
 using HomeTaxEditor.Core.Models;
+using System.Runtime.InteropServices;
+using System.Drawing;
+using System.Drawing.Imaging;
 
 namespace HomeTaxEditor;
 
@@ -19,6 +22,16 @@ public partial class Form1 : Form
     private readonly ExcelReader _excelReader = new ExcelReader();
     private readonly DataMatcher _dataMatcher = new DataMatcher();
     private readonly ScriptGenerator _scriptGenerator = new ScriptGenerator();
+
+    // Windows API for mouse click
+    [DllImport("user32.dll")]
+    private static extern bool SetCursorPos(int X, int Y);
+
+    [DllImport("user32.dll")]
+    private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, int dwExtraInfo);
+
+    private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    private const uint MOUSEEVENTF_LEFTUP = 0x0004;
 
     public Form1(bool developerMode = false)
     {
@@ -56,6 +69,9 @@ public partial class Form1 : Form
             // 네비게이션 완료 이벤트 핸들러
             webView.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
 
+            // JavaScript alert/confirm 자동 처리
+            webView.CoreWebView2.ScriptDialogOpening += CoreWebView2_ScriptDialogOpening;
+
             isWebViewInitialized = true;
             LogMessage("WebView2 초기화 완료");
 
@@ -78,6 +94,19 @@ public partial class Form1 : Form
         else
         {
             LogMessage($"페이지 로드 실패: {e.WebErrorStatus}");
+        }
+    }
+
+    private void CoreWebView2_ScriptDialogOpening(object? sender, CoreWebView2ScriptDialogOpeningEventArgs e)
+    {
+        // JavaScript alert, confirm, prompt 자동 처리
+        LogMessage($"JavaScript 대화상자 감지: {e.Kind} - {e.Message}");
+
+        // alert와 confirm은 자동으로 수락
+        if (e.Kind == CoreWebView2ScriptDialogKind.Alert || e.Kind == CoreWebView2ScriptDialogKind.Confirm)
+        {
+            e.Accept();
+            LogMessage("JavaScript 대화상자 자동 수락");
         }
     }
 
@@ -307,14 +336,14 @@ public partial class Form1 : Form
             progressBar.Value = 0;
             progressBar.Maximum = 100;
 
-            // 1단계: 메뉴 자동 진입 (20%)
+            // 1단계: 메뉴 자동 진입 (0-20%)
             LogMessage("[1/6] 메뉴 자동 진입 중...");
             cancellationToken.ThrowIfCancellationRequested();
             await NavigateToCardMenu();
             await Task.Delay(5000, cancellationToken); // 페이지 로딩 대기 (5초)
             progressBar.Value = 20;
 
-            // 2단계: 엑셀 파일 읽기 (30%)
+            // 2단계: 엑셀 파일 읽기 (20-25%)
             LogMessage("[2/6] 엑셀 파일 읽기 중...");
             cancellationToken.ThrowIfCancellationRequested();
             var excelData = _excelReader.ReadExcelFile(selectedExcelPath!);
@@ -325,25 +354,27 @@ public partial class Form1 : Form
                 return;
             }
             LogMessage($"엑셀에서 {excelData.Count}건의 데이터를 읽었습니다.");
-            progressBar.Value = 30;
+            progressBar.Value = 25;
 
-            // 3단계: 날짜 범위 추출 및 조회 기간 설정 (50%)
+            // 3단계: 날짜 범위 추출 및 조회 기간 설정 (25-30%)
             LogMessage("[3/6] 조회 기간 설정 중...");
             cancellationToken.ThrowIfCancellationRequested();
             var (year, quarter) = GetDateRangeFromExcelData(excelData);
             LogMessage($"데이터 범위: {year}년 {quarter}분기");
             await SetSearchPeriodAndSearch(year, quarter);
             await Task.Delay(3000, cancellationToken); // 검색 결과 로딩 대기 (3초)
-            progressBar.Value = 50;
+            progressBar.Value = 30;
 
-            // 4-6단계: 모든 페이지 처리 (60% ~ 100%)
+            // 4-6단계: 모든 페이지 처리 (30% ~ 100%)
             LogMessage("[4/6] 모든 페이지를 처리합니다");
             changesTable.Rows.Clear();
 
             int totalAppliedCount = 0;
             int totalMatchedCount = 0;
+            int totalExcelCount = excelData.Count; // 전체 엑셀 데이터 건수
             int pageNumber = 1;
             bool hasMorePages = true;
+            string previousPageFirstRow = ""; // 이전 페이지의 첫 번째 행 (무한 루프 방지)
 
             while (hasMorePages)
             {
@@ -354,19 +385,64 @@ public partial class Form1 : Form
                 var webData = await ExtractWebTableData();
                 if (webData.Count == 0)
                 {
-                    LogMessage($"페이지 {pageNumber}에서 데이터를 추출할 수 없습니다. 모든 페이지 처리 완료.");
-                    hasMorePages = false;
-                    break;
+                    if (pageNumber == 1)
+                    {
+                        // 첫 페이지에서 데이터가 없으면 로그인 확인 필요
+                        LogMessage("❌ 데이터를 불러올 수 없습니다. 홈택스에 로그인했는지 확인하고, 사업용 신용카드 메뉴에 진입했는지 확인하세요.");
+                        MessageBox.Show(
+                            "데이터를 불러올 수 없습니다.\n\n다음을 확인해주세요:\n1. 홈택스에 로그인되어 있는지\n2. 사업용 신용카드 메뉴에 올바르게 진입했는지\n3. 조회 기간에 데이터가 있는지",
+                            "데이터 없음",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning
+                        );
+                        progressBar.Value = 0;
+                        return;
+                    }
+                    else
+                    {
+                        // 2페이지 이상에서 데이터가 없으면 모든 페이지 처리 완료
+                        LogMessage($"페이지 {pageNumber}에서 데이터를 추출할 수 없습니다. 모든 페이지 처리 완료.");
+                        hasMorePages = false;
+                        break;
+                    }
                 }
 
                 LogMessage($"페이지 {pageNumber}: {webData.Count}건 추출");
 
+                // 무한 루프 방지: 이전 페이지와 동일한 데이터인지 확인
+                if (webData.Count > 0)
+                {
+                    string currentPageFirstRow = $"{webData[0].AprvDt}|{webData[0].MrntTxprDscmNoEncCntn}|{webData[0].TotaTrsAmt}";
+
+                    if (!string.IsNullOrEmpty(previousPageFirstRow) && currentPageFirstRow == previousPageFirstRow)
+                    {
+                        LogMessage($"⚠️ 페이지 {pageNumber}: 이전 페이지와 동일한 데이터 감지. 마지막 페이지로 판단합니다.");
+                        hasMorePages = false;
+                        break;
+                    }
+
+                    previousPageFirstRow = currentPageFirstRow;
+                }
+
                 // 데이터 매칭
                 var matchedChanges = _dataMatcher.MatchData(excelData, webData);
                 var (total, matched, needChange) = _dataMatcher.GetMatchingStats(excelData, webData, matchedChanges);
+                var skippedSimpleTaxpayer = _dataMatcher.GetSkippedSimpleTaxpayerCount(excelData, webData);
 
                 totalMatchedCount += matched;
-                LogMessage($"페이지 {pageNumber}: {matched}건 매칭, {needChange}건 변경 필요");
+
+                if (skippedSimpleTaxpayer > 0)
+                {
+                    LogMessage($"페이지 {pageNumber}: {matched}건 매칭, {needChange}건 변경 필요 (간이과세자 {skippedSimpleTaxpayer}건 제외)");
+                }
+                else
+                {
+                    LogMessage($"페이지 {pageNumber}: {matched}건 매칭, {needChange}건 변경 필요");
+                }
+
+                // 프로그레스 바 업데이트: 30% + (매칭된 건수 / 전체 건수) * 70%
+                int progressPercentage = 30 + (int)((double)totalMatchedCount / totalExcelCount * 70);
+                progressBar.Value = Math.Min(progressPercentage, 100);
 
                 // 변경 내역 테이블에 추가
                 foreach (var change in matchedChanges)
@@ -410,7 +486,6 @@ public partial class Form1 : Form
                 }
 
                 pageNumber++;
-                progressBar.Value = Math.Min(60 + (pageNumber * 10), 100);
             }
 
             progressBar.Value = 100;
@@ -639,11 +714,27 @@ public partial class Form1 : Form
 
                     if (success)
                     {
-                        // 저장 처리 및 팝업 대기 (1초)
-                        await Task.Delay(1000);
+                        // 저장 처리 및 팝업 대기 (2초)
+                        LogMessage("팝업이 나타날 때까지 대기 중...");
+                        await Task.Delay(2000);
 
-                        // "변경이 완료되었습니다" 팝업의 확인 버튼 클릭
-                        await ClickConfirmPopup();
+                        // "변경이 완료되었습니다" 팝업의 확인 버튼 클릭 (최대 3번 시도)
+                        bool popupClosed = false;
+                        for (int attempt = 1; attempt <= 3 && !popupClosed; attempt++)
+                        {
+                            LogMessage($"팝업 확인 버튼 클릭 시도 {attempt}/3...");
+                            popupClosed = await ClickConfirmPopup();
+
+                            if (!popupClosed)
+                            {
+                                await Task.Delay(500);
+                            }
+                        }
+
+                        if (!popupClosed)
+                        {
+                            LogMessage("⚠️ 팝업 확인 버튼을 자동으로 클릭하지 못했습니다. 수동으로 클릭해주세요.");
+                        }
 
                         // 팝업 닫힌 후 추가 대기 (0.5초)
                         await Task.Delay(500);
@@ -657,7 +748,7 @@ public partial class Form1 : Form
         }
     }
 
-    private async Task ClickConfirmPopup()
+    private async Task<bool> ClickConfirmPopup()
     {
         string script = @"
 (function() {
@@ -665,6 +756,51 @@ public partial class Form1 : Form
         var debugInfo = [];
         var confirmBtn = null;
 
+        // 먼저 WebSquare API로 팝업 닫기 시도
+        if (typeof $w !== 'undefined') {
+            // 방법 1: closePopup 시도
+            if (typeof $w.closePopup === 'function') {
+                try {
+                    var popupList = $w.getPopupList ? $w.getPopupList() : [];
+                    if (popupList && popupList.length > 0) {
+                        for (var i = 0; i < popupList.length; i++) {
+                            $w.closePopup(popupList[i]);
+                        }
+                        return JSON.stringify({
+                            success: true,
+                            message: 'WebSquare closePopup 성공 (팝업 리스트)',
+                            method: 'closePopup',
+                            count: popupList.length
+                        });
+                    } else {
+                        $w.closePopup();
+                        return JSON.stringify({
+                            success: true,
+                            message: 'WebSquare closePopup 성공',
+                            method: 'closePopup'
+                        });
+                    }
+                } catch (e) {
+                    debugInfo.push('closePopup 오류: ' + e.message);
+                }
+            }
+
+            // 방법 2: hideProcessMessage 시도
+            if (typeof $w.hideProcessMessage === 'function') {
+                try {
+                    $w.hideProcessMessage();
+                    return JSON.stringify({
+                        success: true,
+                        message: 'WebSquare hideProcessMessage 성공',
+                        method: 'hideProcessMessage'
+                    });
+                } catch (e) {
+                    debugInfo.push('hideProcessMessage 오류: ' + e.message);
+                }
+            }
+        }
+
+        // WebSquare API로 안 되면 DOM에서 버튼 찾기
         // 패턴 1: ID로 찾기
         var btnPatterns = [
             'scwin_wfm_side_messageConfirm',
@@ -712,126 +848,54 @@ public partial class Form1 : Form
             }
         }
 
-        // 패턴 2: 모든 가시적인 버튼 찾기
-        var allButtons = document.querySelectorAll('button, input[type=""button""], a, span, div');
-        var visibleButtons = [];
+        // 패턴 2: 버튼 요소만 찾기 (div 제외하여 성능 개선)
+        var allButtons = document.querySelectorAll('button, input[type=""button""], a, span');
+        var foundButtons = 0;
 
         for (var i = 0; i < allButtons.length; i++) {
             var btn = allButtons[i];
-            var style = window.getComputedStyle(btn);
+            var btnText = (btn.value || btn.textContent || btn.innerText || '').trim();
 
-            // 보이는 요소만 확인
-            if (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') {
-                var btnText = (btn.value || btn.textContent || btn.innerText || '').trim();
+            // '확인' 텍스트 찾기 (완전 일치만)
+            if (btnText === '확인' || btnText === 'OK' || btnText === '닫기') {
+                foundButtons++;
 
-                if (btnText) {
-                    visibleButtons.push({
-                        tag: btn.tagName,
-                        id: btn.id || '',
-                        class: btn.className || '',
-                        text: btnText.substring(0, 50),
-                        display: style.display,
-                        visibility: style.visibility
-                    });
+                // 클릭 이벤트 발생
+                btn.click();
 
-                    // '확인' 텍스트 찾기 (완전 일치 또는 포함)
-                    if (btnText === '확인' || btnText === 'OK' || btnText === '닫기' ||
-                        btnText.indexOf('확인') >= 0) {
+                var clickEvent = new MouseEvent('click', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true
+                });
+                btn.dispatchEvent(clickEvent);
 
-                        // 실제 마우스 클릭 이벤트 발생
-                        var clickEvent = new MouseEvent('click', {
-                            view: window,
-                            bubbles: true,
-                            cancelable: true,
-                            buttons: 1
-                        });
-                        btn.dispatchEvent(clickEvent);
+                var mousedownEvent = new MouseEvent('mousedown', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true
+                });
+                var mouseupEvent = new MouseEvent('mouseup', {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true
+                });
+                btn.dispatchEvent(mousedownEvent);
+                btn.dispatchEvent(mouseupEvent);
 
-                        // 추가로 mousedown, mouseup 이벤트도 발생
-                        var mousedownEvent = new MouseEvent('mousedown', {
-                            view: window,
-                            bubbles: true,
-                            cancelable: true,
-                            buttons: 1
-                        });
-                        var mouseupEvent = new MouseEvent('mouseup', {
-                            view: window,
-                            bubbles: true,
-                            cancelable: true,
-                            buttons: 1
-                        });
-                        btn.dispatchEvent(mousedownEvent);
-                        btn.dispatchEvent(mouseupEvent);
-
-                        // 기본 click도 시도
-                        btn.click();
-
-                        return JSON.stringify({
-                            success: true,
-                            message: '확인 버튼 클릭 완료 (텍스트)',
-                            buttonText: btnText,
-                            buttonId: btn.id || '(no id)',
-                            buttonClass: btn.className || '(no class)'
-                        });
-                    }
-                }
-            }
-        }
-
-        // 패턴 3: iframe 내부 확인
-        var iframes = document.querySelectorAll('iframe');
-        for (var i = 0; i < iframes.length; i++) {
-            try {
-                var iframeDoc = iframes[i].contentDocument || iframes[i].contentWindow.document;
-                var iframeButtons = iframeDoc.querySelectorAll('button, input[type=""button""], a, span');
-
-                for (var j = 0; j < iframeButtons.length; j++) {
-                    var btn = iframeButtons[j];
-                    var btnText = (btn.value || btn.textContent || '').trim();
-
-                    if (btnText === '확인' || btnText === 'OK' || btnText === '닫기') {
-                        // 실제 마우스 클릭 이벤트 발생
-                        var clickEvent = new MouseEvent('click', {
-                            view: iframeDoc.defaultView || window,
-                            bubbles: true,
-                            cancelable: true,
-                            buttons: 1
-                        });
-                        btn.dispatchEvent(clickEvent);
-
-                        var mousedownEvent = new MouseEvent('mousedown', {
-                            view: iframeDoc.defaultView || window,
-                            bubbles: true,
-                            cancelable: true,
-                            buttons: 1
-                        });
-                        var mouseupEvent = new MouseEvent('mouseup', {
-                            view: iframeDoc.defaultView || window,
-                            bubbles: true,
-                            cancelable: true,
-                            buttons: 1
-                        });
-                        btn.dispatchEvent(mousedownEvent);
-                        btn.dispatchEvent(mouseupEvent);
-                        btn.click();
-
-                        return JSON.stringify({
-                            success: true,
-                            message: '확인 버튼 클릭 완료 (iframe)',
-                            buttonText: btnText
-                        });
-                    }
-                }
-            } catch (e) {
-                // iframe 접근 불가 (CORS)
+                return JSON.stringify({
+                    success: true,
+                    message: '확인 버튼 클릭 완료 (텍스트)',
+                    buttonText: btnText,
+                    buttonId: btn.id || '(no id)'
+                });
             }
         }
 
         return JSON.stringify({
             success: false,
-            message: '확인 버튼을 찾을 수 없습니다',
-            totalButtons: allButtons.length,
-            visibleButtons: visibleButtons.slice(0, 20)
+            message: '확인 버튼을 찾을 수 없습니다. 총 ' + allButtons.length + '개 요소 검색함',
+            foundButtons: foundButtons
         });
     } catch (ex) {
         return JSON.stringify({ success: false, message: ex.message });
@@ -841,7 +905,24 @@ public partial class Form1 : Form
 
         try
         {
-            var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+            // 타임아웃 5초 설정
+            var executeTask = webView.CoreWebView2.ExecuteScriptAsync(script);
+            var timeoutTask = Task.Delay(5000);
+
+            var completedTask = await Task.WhenAny(executeTask, timeoutTask);
+
+            if (completedTask == timeoutTask)
+            {
+                LogMessage("팝업 클릭 스크립트 실행 타임아웃 (5초)");
+
+                // 이미지 인식으로 팝업 닫기 시도
+                LogMessage("이미지 인식 방식으로 팝업 닫기 시도...");
+                bool imageClickSuccess = await ClickBlueButtonByImageRecognition();
+
+                return imageClickSuccess;
+            }
+
+            var result = await executeTask;
 
             // JSON 파싱
             string cleanJson;
@@ -887,6 +968,8 @@ public partial class Form1 : Form
                             LogMessage($"\n총 버튼 개수: {totalProp.GetInt32()}");
                         }
                     }
+
+                    return success;
                 }
             }
         }
@@ -894,6 +977,8 @@ public partial class Form1 : Form
         {
             LogMessage($"팝업 클릭 오류: {ex.Message}");
         }
+
+        return false;
     }
 
     private async Task ClickSaveButton()
@@ -1681,5 +1766,106 @@ public partial class Form1 : Form
         public bool success { get; set; }
         public List<WebTableRow> rows { get; set; } = new List<WebTableRow>();
         public string? error { get; set; }
+    }
+
+    /// <summary>
+    /// 화면 캡처 후 파란색 버튼 찾아서 클릭
+    /// </summary>
+    private async Task<bool> ClickBlueButtonByImageRecognition()
+    {
+        try
+        {
+            LogMessage("화면 캡처 및 파란색 버튼 감지 시작...");
+
+            // WebView2 화면 캡처
+            var webViewBounds = webView.Bounds;
+            var screenPoint = webView.PointToScreen(Point.Empty);
+
+            using (var bitmap = new Bitmap(webViewBounds.Width, webViewBounds.Height))
+            {
+                using (var g = Graphics.FromImage(bitmap))
+                {
+                    g.CopyFromScreen(screenPoint.X, screenPoint.Y, 0, 0, bitmap.Size);
+                }
+
+                // 파란색 버튼 찾기 (화면 상단 1/3 영역만 스캔)
+                int scanHeight = bitmap.Height / 3;
+                Point? buttonCenter = FindBlueButton(bitmap, scanHeight);
+
+                if (buttonCenter.HasValue)
+                {
+                    // 절대 화면 좌표 계산
+                    int screenX = screenPoint.X + buttonCenter.Value.X;
+                    int screenY = screenPoint.Y + buttonCenter.Value.Y;
+
+                    LogMessage($"파란색 버튼 발견: ({buttonCenter.Value.X}, {buttonCenter.Value.Y}) -> 화면 좌표 ({screenX}, {screenY})");
+
+                    // 마우스 이동 및 클릭
+                    SetCursorPos(screenX, screenY);
+                    await Task.Delay(100); // 마우스 이동 대기
+
+                    mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+                    await Task.Delay(50);
+                    mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+
+                    LogMessage("파란색 버튼 클릭 완료!");
+                    return true;
+                }
+                else
+                {
+                    LogMessage("파란색 버튼을 찾을 수 없습니다.");
+                    return false;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMessage($"이미지 인식 클릭 오류: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 비트맵에서 파란색 버튼 영역 찾기
+    /// </summary>
+    private Point? FindBlueButton(Bitmap bitmap, int scanHeight)
+    {
+        // 파란색 범위 정의 (스크린샷의 "확인" 버튼 색상 기준)
+        // RGB: 대략 (40-90, 100-150, 180-230) 범위의 파란색
+        int minR = 30, maxR = 100;
+        int minG = 90, maxG = 160;
+        int minB = 170, maxB = 240;
+
+        List<Point> bluePixels = new List<Point>();
+
+        // 상단 영역만 스캔
+        for (int y = 0; y < Math.Min(scanHeight, bitmap.Height); y++)
+        {
+            for (int x = 0; x < bitmap.Width; x++)
+            {
+                Color pixel = bitmap.GetPixel(x, y);
+
+                // 파란색 범위 체크
+                if (pixel.R >= minR && pixel.R <= maxR &&
+                    pixel.G >= minG && pixel.G <= maxG &&
+                    pixel.B >= minB && pixel.B <= maxB)
+                {
+                    bluePixels.Add(new Point(x, y));
+                }
+            }
+        }
+
+        if (bluePixels.Count == 0)
+        {
+            return null;
+        }
+
+        // 파란색 픽셀들의 중심점 계산
+        int avgX = (int)bluePixels.Average(p => p.X);
+        int avgY = (int)bluePixels.Average(p => p.Y);
+
+        LogMessage($"파란색 픽셀 {bluePixels.Count}개 발견, 중심: ({avgX}, {avgY})");
+
+        return new Point(avgX, avgY);
     }
 }
