@@ -1313,9 +1313,10 @@ public partial class Form1 : Form
     }
 
     /// <summary>
-    /// 엑셀 데이터에 포함된 모든 (연도, 분기) 조합을 오름차순으로 반환.
+    /// 엑셀 데이터에 포함된 모든 (연도, 분기) 조합을 최신 분기부터(내림차순) 반환.
     /// 파일명 기간과 무관하게 실제 승인일자 기준으로 분기를 뽑으므로,
     /// 여러 분기가 섞인 파일도 각 분기를 모두 조회한다.
+    /// (예: 2분기 파일에 3월 승인건이 섞이면 2분기 먼저 → 1분기 순으로 처리)
     /// </summary>
     private List<(int year, int quarter)> GetQuartersFromExcelData(List<CardTransactionData> excelData)
     {
@@ -1325,8 +1326,8 @@ public partial class Form1 : Form
             .Select(d => d!.Value)
             .Select(dt => (year: dt.Year, quarter: (dt.Month - 1) / 3 + 1))
             .Distinct()
-            .OrderBy(q => q.year)
-            .ThenBy(q => q.quarter)
+            .OrderByDescending(q => q.year)
+            .ThenByDescending(q => q.quarter)
             .ToList();
 
         if (quarters.Count == 0)
@@ -1451,6 +1452,9 @@ public partial class Form1 : Form
         await Task.Delay(1000); // 1초 대기
 
         // 2단계: 년도 및 분기 선택
+        //  - 분기는 인덱스(selectedIndex=quarter-1) 대신 '{quarter}분기' 텍스트로 매칭한다.
+        //    드롭다운에 placeholder/전체 옵션이 끼거나 순서가 바뀌어도 엉뚱한 분기를 고르지 않도록.
+        //  - 실제로 선택된 년도/분기 텍스트를 되읽어 로그로 반환(중간 분기 전환 성공 여부 확인용).
         string selectPeriodScript = $@"
             (function() {{
                 try {{
@@ -1461,20 +1465,38 @@ public partial class Form1 : Form
                         return 'ERROR: 년도 또는 분기 드롭다운을 찾을 수 없습니다.';
                     }}
 
-                    // 년도 선택
+                    // 년도 선택 (텍스트 매칭)
+                    var yearOk = false;
                     for (var i = 0; i < yearSelect.options.length; i++) {{
-                        if (yearSelect.options[i].text.includes('{year}')) {{
+                        if (yearSelect.options[i].text.indexOf('{year}') >= 0) {{
                             yearSelect.selectedIndex = i;
                             yearSelect.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            yearOk = true;
                             break;
                         }}
                     }}
 
-                    // 분기 선택
-                    quarterSelect.selectedIndex = {quarter - 1};
-                    quarterSelect.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    // 분기 선택 (텍스트 매칭)
+                    var qLabel = '{quarter}분기';
+                    var qOpts = [];
+                    var qOk = false;
+                    for (var j = 0; j < quarterSelect.options.length; j++) {{
+                        qOpts.push(quarterSelect.options[j].text);
+                        if (quarterSelect.options[j].text.indexOf(qLabel) >= 0) {{
+                            quarterSelect.selectedIndex = j;
+                            quarterSelect.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            qOk = true;
+                            break;
+                        }}
+                    }}
 
-                    return 'OK: ' + {year} + '년 ' + {quarter} + '분기 선택됨';
+                    if (!qOk) {{
+                        return 'ERROR: 분기 옵션에서 ' + qLabel + '을(를) 찾지 못함. 옵션=[' + qOpts.join(', ') + ']';
+                    }}
+
+                    var selYear = yearSelect.options[yearSelect.selectedIndex] ? yearSelect.options[yearSelect.selectedIndex].text : '?';
+                    var selQrt = quarterSelect.options[quarterSelect.selectedIndex] ? quarterSelect.options[quarterSelect.selectedIndex].text : '?';
+                    return 'OK: 선택됨 → 년도[' + selYear + '] 분기[' + selQrt + '] (yearOk=' + yearOk + ')';
                 }} catch (ex) {{
                     return 'ERROR: ' + ex.message;
                 }}
