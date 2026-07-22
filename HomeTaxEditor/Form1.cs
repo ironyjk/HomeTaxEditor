@@ -356,136 +356,133 @@ public partial class Form1 : Form
             LogMessage($"엑셀에서 {excelData.Count}건의 데이터를 읽었습니다.");
             progressBar.Value = 25;
 
-            // 3단계: 날짜 범위 추출 및 조회 기간 설정 (25-30%)
-            LogMessage("[3/6] 조회 기간 설정 중...");
+            // 3단계: 처리할 분기 목록 추출 (25-30%)
+            //  - 엑셀에 여러 분기가 섞여 있을 수 있으므로(예: 파일명은 2분기여도 3월 승인건 포함),
+            //    포함된 모든 (연도,분기)를 각각 조회한다.
+            LogMessage("[3/6] 처리할 분기 목록을 추출합니다...");
             cancellationToken.ThrowIfCancellationRequested();
-            var (year, quarter) = GetDateRangeFromExcelData(excelData);
-            LogMessage($"데이터 범위: {year}년 {quarter}분기");
-            await SetSearchPeriodAndSearch(year, quarter);
-            await Task.Delay(3000, cancellationToken); // 검색 결과 로딩 대기 (3초)
+            var quarters = GetQuartersFromExcelData(excelData);
             progressBar.Value = 30;
 
-            // 4-6단계: 모든 페이지 처리 (30% ~ 100%)
-            LogMessage("[4/6] 모든 페이지를 처리합니다");
+            // 4-6단계: 각 분기별로 모든 페이지 처리 (30% ~ 100%)
+            LogMessage($"[4/6] 총 {quarters.Count}개 분기, 모든 페이지를 처리합니다");
             changesTable.Rows.Clear();
 
             int totalAppliedCount = 0;
             int totalMatchedCount = 0;
             int totalExcelCount = excelData.Count; // 전체 엑셀 데이터 건수
-            int pageNumber = 1;
-            bool hasMorePages = true;
-            string previousPageFirstRow = ""; // 이전 페이지의 첫 번째 행 (무한 루프 방지)
+            bool anyDataSeen = false; // 데이터를 한 번이라도 읽었는지 (로그인/메뉴 진입 확인용)
 
-            while (hasMorePages)
+            foreach (var (year, quarter) in quarters)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                LogMessage($"--- 페이지 {pageNumber} 처리 중 ---");
+                LogMessage($"===== {year}년 {quarter}분기 조회 시작 =====");
+                await SetSearchPeriodAndSearch(year, quarter);
+                await Task.Delay(3000, cancellationToken); // 검색 결과 로딩 대기 (3초)
 
-                // 현재 페이지 데이터 추출
-                var webData = await ExtractWebTableData();
-                if (webData.Count == 0)
+                int pageNumber = 1;
+                string previousPageFirstRow = ""; // 이전 페이지의 첫 번째 행 (무한 루프 방지)
+
+                while (true)
                 {
-                    if (pageNumber == 1)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    LogMessage($"--- {year}년 {quarter}분기 / 페이지 {pageNumber} 처리 중 ---");
+
+                    // 현재 페이지 데이터 추출
+                    var webData = await ExtractWebTableData();
+                    if (webData.Count == 0)
                     {
-                        // 첫 페이지에서 데이터가 없으면 로그인 확인 필요
-                        LogMessage("❌ 데이터를 불러올 수 없습니다. 홈택스에 로그인했는지 확인하고, 사업용 신용카드 메뉴에 진입했는지 확인하세요.");
-                        MessageBox.Show(
-                            "데이터를 불러올 수 없습니다.\n\n다음을 확인해주세요:\n1. 홈택스에 로그인되어 있는지\n2. 사업용 신용카드 메뉴에 올바르게 진입했는지\n3. 조회 기간에 데이터가 있는지",
-                            "데이터 없음",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Warning
-                        );
-                        progressBar.Value = 0;
-                        return;
+                        if (pageNumber == 1 && !anyDataSeen)
+                        {
+                            // 최초 조회부터 데이터가 없으면 로그인/메뉴 진입 확인 필요
+                            LogMessage("❌ 데이터를 불러올 수 없습니다. 홈택스에 로그인했는지 확인하고, 사업용 신용카드 메뉴에 진입했는지 확인하세요.");
+                            MessageBox.Show(
+                                "데이터를 불러올 수 없습니다.\n\n다음을 확인해주세요:\n1. 홈택스에 로그인되어 있는지\n2. 사업용 신용카드 메뉴에 올바르게 진입했는지\n3. 조회 기간에 데이터가 있는지",
+                                "데이터 없음",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Warning
+                            );
+                            progressBar.Value = 0;
+                            return;
+                        }
+
+                        // 이 분기에 더 이상 데이터가 없으면 이 분기 처리 완료 → 다음 분기로
+                        LogMessage($"{year}년 {quarter}분기 페이지 {pageNumber}: 데이터 없음. 이 분기 처리 완료.");
+                        break;
+                    }
+
+                    anyDataSeen = true;
+                    LogMessage($"{year}년 {quarter}분기 페이지 {pageNumber}: {webData.Count}건 추출");
+
+                    // 무한 루프 방지: 이전 페이지와 동일한 데이터인지 확인 (다음 페이지 이동 실패 안전망)
+                    string currentPageFirstRow = $"{webData[0].AprvDt}|{webData[0].MrntTxprDscmNoEncCntn}|{webData[0].TotaTrsAmt}";
+                    if (!string.IsNullOrEmpty(previousPageFirstRow) && currentPageFirstRow == previousPageFirstRow)
+                    {
+                        LogMessage($"⚠️ {year}년 {quarter}분기 페이지 {pageNumber}: 이전 페이지와 동일한 데이터 감지. 마지막 페이지로 판단합니다.");
+                        break;
+                    }
+                    previousPageFirstRow = currentPageFirstRow;
+
+                    // 데이터 매칭
+                    var matchedChanges = _dataMatcher.MatchData(excelData, webData);
+                    var (total, matched, needChange) = _dataMatcher.GetMatchingStats(excelData, webData, matchedChanges);
+                    var skippedSimpleTaxpayer = _dataMatcher.GetSkippedSimpleTaxpayerCount(excelData, webData);
+
+                    totalMatchedCount += matched;
+
+                    if (skippedSimpleTaxpayer > 0)
+                    {
+                        LogMessage($"{year}년 {quarter}분기 페이지 {pageNumber}: {matched}건 매칭, {needChange}건 변경 필요 (간이과세자 {skippedSimpleTaxpayer}건 제외)");
                     }
                     else
                     {
-                        // 2페이지 이상에서 데이터가 없으면 모든 페이지 처리 완료
-                        LogMessage($"페이지 {pageNumber}에서 데이터를 추출할 수 없습니다. 모든 페이지 처리 완료.");
-                        hasMorePages = false;
-                        break;
+                        LogMessage($"{year}년 {quarter}분기 페이지 {pageNumber}: {matched}건 매칭, {needChange}건 변경 필요");
                     }
-                }
 
-                LogMessage($"페이지 {pageNumber}: {webData.Count}건 추출");
+                    // 프로그레스 바 업데이트: 30% + (매칭된 건수 / 전체 건수) * 70%
+                    int progressPercentage = 30 + (int)((double)totalMatchedCount / totalExcelCount * 70);
+                    progressBar.Value = Math.Min(progressPercentage, 100);
 
-                // 무한 루프 방지: 이전 페이지와 동일한 데이터인지 확인
-                if (webData.Count > 0)
-                {
-                    string currentPageFirstRow = $"{webData[0].AprvDt}|{webData[0].MrntTxprDscmNoEncCntn}|{webData[0].TotaTrsAmt}";
-
-                    if (!string.IsNullOrEmpty(previousPageFirstRow) && currentPageFirstRow == previousPageFirstRow)
+                    // 변경 내역 테이블에 추가
+                    foreach (var change in matchedChanges)
                     {
-                        LogMessage($"⚠️ 페이지 {pageNumber}: 이전 페이지와 동일한 데이터 감지. 마지막 페이지로 판단합니다.");
-                        hasMorePages = false;
+                        changesTable.Rows.Add(
+                            change.ExcelData.승인일자, // 날짜
+                            change.ExcelData.가맹점사업자번호, // 가맹점사업자번호
+                            change.WebData.MrntNm, // 상호명
+                            change.ExcelData.합계.ToString("N0"), // 금액
+                            change.WebData.CurrentDdcYnNm, // 변경 전
+                            change.공제여부, // 변경 후
+                            "대기" // 상태
+                        );
+                    }
+
+                    // 변경사항 적용
+                    if (matchedChanges.Count > 0)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        LogMessage($"{year}년 {quarter}분기 페이지 {pageNumber}: {matchedChanges.Count}건 변경 적용 중...");
+                        int appliedCount = await ApplyChangesToWeb(matchedChanges);
+                        totalAppliedCount += appliedCount;
+                        LogMessage($"{year}년 {quarter}분기 페이지 {pageNumber}: {appliedCount}건 변경 완료");
+
+                        // 변경사항 확인을 위해 2초 대기
+                        LogMessage("⏸️ 변경사항 확인을 위해 2초 대기 중...");
+                        await Task.Delay(2000, cancellationToken);
+                    }
+
+                    // 다음 페이지로 이동 (홈택스 WebSquare 페이저: mf_txppWframe_pglNavi)
+                    bool movedToNext = await GoToNextPage();
+                    if (!movedToNext)
+                    {
+                        LogMessage($"{year}년 {quarter}분기: 다음 페이지가 없습니다. 이 분기 처리 완료.");
                         break;
                     }
 
-                    previousPageFirstRow = currentPageFirstRow;
-                }
-
-                // 데이터 매칭
-                var matchedChanges = _dataMatcher.MatchData(excelData, webData);
-                var (total, matched, needChange) = _dataMatcher.GetMatchingStats(excelData, webData, matchedChanges);
-                var skippedSimpleTaxpayer = _dataMatcher.GetSkippedSimpleTaxpayerCount(excelData, webData);
-
-                totalMatchedCount += matched;
-
-                if (skippedSimpleTaxpayer > 0)
-                {
-                    LogMessage($"페이지 {pageNumber}: {matched}건 매칭, {needChange}건 변경 필요 (간이과세자 {skippedSimpleTaxpayer}건 제외)");
-                }
-                else
-                {
-                    LogMessage($"페이지 {pageNumber}: {matched}건 매칭, {needChange}건 변경 필요");
-                }
-
-                // 프로그레스 바 업데이트: 30% + (매칭된 건수 / 전체 건수) * 70%
-                int progressPercentage = 30 + (int)((double)totalMatchedCount / totalExcelCount * 70);
-                progressBar.Value = Math.Min(progressPercentage, 100);
-
-                // 변경 내역 테이블에 추가
-                foreach (var change in matchedChanges)
-                {
-                    changesTable.Rows.Add(
-                        change.ExcelData.승인일자, // 날짜
-                        change.ExcelData.가맹점사업자번호, // 가맹점사업자번호
-                        change.WebData.MrntNm, // 상호명
-                        change.ExcelData.합계.ToString("N0"), // 금액
-                        change.WebData.CurrentDdcYnNm, // 변경 전
-                        change.공제여부, // 변경 후
-                        "대기" // 상태
-                    );
-                }
-
-                // 변경사항 적용
-                if (matchedChanges.Count > 0)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    LogMessage($"페이지 {pageNumber}: {matchedChanges.Count}건 변경 적용 중...");
-                    int appliedCount = await ApplyChangesToWeb(matchedChanges);
-                    totalAppliedCount += appliedCount;
-                    LogMessage($"페이지 {pageNumber}: {appliedCount}건 변경 완료");
-
-                    // 변경사항 확인을 위해 2초 대기
-                    LogMessage("⏸️ 변경사항 확인을 위해 2초 대기 중...");
-                    await Task.Delay(2000, cancellationToken);
-                }
-
-                // 다음 페이지로 이동
-                bool movedToNext = await MoveToNextPage();
-                if (!movedToNext)
-                {
-                    LogMessage("다음 페이지가 없습니다. 모든 페이지 처리 완료.");
-                    hasMorePages = false;
-                }
-                else
-                {
                     LogMessage($"다음 페이지({pageNumber + 1})로 이동했습니다.");
                     await Task.Delay(2000, cancellationToken); // 페이지 로딩 대기
+                    pageNumber++;
                 }
-
-                pageNumber++;
             }
 
             progressBar.Value = 100;
@@ -1313,6 +1310,34 @@ public partial class Form1 : Form
         LogMessage($"✓ 결과: {year}년 {quarter}분기");
 
         return (year, quarter);
+    }
+
+    /// <summary>
+    /// 엑셀 데이터에 포함된 모든 (연도, 분기) 조합을 오름차순으로 반환.
+    /// 파일명 기간과 무관하게 실제 승인일자 기준으로 분기를 뽑으므로,
+    /// 여러 분기가 섞인 파일도 각 분기를 모두 조회한다.
+    /// </summary>
+    private List<(int year, int quarter)> GetQuartersFromExcelData(List<CardTransactionData> excelData)
+    {
+        var quarters = excelData
+            .Select(d => DateTime.TryParse(d.승인일자, out var dt) ? (DateTime?)dt : null)
+            .Where(d => d.HasValue)
+            .Select(d => d!.Value)
+            .Select(dt => (year: dt.Year, quarter: (dt.Month - 1) / 3 + 1))
+            .Distinct()
+            .OrderBy(q => q.year)
+            .ThenBy(q => q.quarter)
+            .ToList();
+
+        if (quarters.Count == 0)
+        {
+            var now = DateTime.Now;
+            quarters.Add((now.Year, (now.Month - 1) / 3 + 1));
+            LogMessage("⚠️ 유효한 날짜를 찾을 수 없습니다. 현재 분기를 사용합니다.");
+        }
+
+        LogMessage($"엑셀 데이터에 포함된 분기 {quarters.Count}개: {string.Join(", ", quarters.Select(q => $"{q.year}년 {q.quarter}분기"))}");
+        return quarters;
     }
 
     private async Task<bool> GoToNextPage()
