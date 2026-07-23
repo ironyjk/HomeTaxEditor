@@ -381,7 +381,7 @@ public partial class Form1 : Form
                 await Task.Delay(3000, cancellationToken); // 검색 결과 로딩 대기 (3초)
 
                 int pageNumber = 1;
-                string previousPageFirstRow = ""; // 이전 페이지의 첫 번째 행 (무한 루프 방지)
+                string previousPageSignature = ""; // 이전 페이지 전체 서명 (무한 루프 방지)
 
                 while (true)
                 {
@@ -414,14 +414,19 @@ public partial class Form1 : Form
                     anyDataSeen = true;
                     LogMessage($"{year}년 {quarter}분기 페이지 {pageNumber}: {webData.Count}건 추출");
 
-                    // 무한 루프 방지: 이전 페이지와 동일한 데이터인지 확인 (다음 페이지 이동 실패 안전망)
-                    string currentPageFirstRow = $"{webData[0].AprvDt}|{webData[0].MrntTxprDscmNoEncCntn}|{webData[0].TotaTrsAmt}";
-                    if (!string.IsNullOrEmpty(previousPageFirstRow) && currentPageFirstRow == previousPageFirstRow)
+                    // 무한 루프 방지: 이전 페이지와 "전체가 동일한" 데이터인지 확인 (다음 페이지 이동 실패 안전망)
+                    //  - 첫 행 하나만 비교하면, 같은 가맹점·같은 금액이 반복되는 데이터에서 서로 다른
+                    //    페이지인데도 첫 행이 우연히 일치해 "마지막 페이지"로 오판(→ 조기 종료)한다.
+                    //    (계열사 사례: 페이지당 20건, 대부분 같은 가맹점/소액 → 6월분만 처리하고 57페이지에서 멈춤)
+                    //  - 그래서 페이지의 모든 행(날짜|사업자번호|금액)을 이어붙인 전체 서명으로 비교한다.
+                    string currentPageSignature = string.Join("#",
+                        webData.Select(r => $"{r.AprvDt}|{r.MrntTxprDscmNoEncCntn}|{r.TotaTrsAmt}"));
+                    if (!string.IsNullOrEmpty(previousPageSignature) && currentPageSignature == previousPageSignature)
                     {
-                        LogMessage($"⚠️ {year}년 {quarter}분기 페이지 {pageNumber}: 이전 페이지와 동일한 데이터 감지. 마지막 페이지로 판단합니다.");
+                        LogMessage($"⚠️ {year}년 {quarter}분기 페이지 {pageNumber}: 이전 페이지와 전체 데이터가 동일 → 마지막 페이지로 판단합니다.");
                         break;
                     }
-                    previousPageFirstRow = currentPageFirstRow;
+                    previousPageSignature = currentPageSignature;
 
                     // 데이터 매칭
                     var matchedChanges = _dataMatcher.MatchData(excelData, webData);
@@ -1371,8 +1376,11 @@ public partial class Form1 : Form
                     }
 
                     // 마지막 페이지인지 확인
+                    //  - maxPage는 페이저에 보이는 페이지 링크 중 최대 data-index.
+                    //    이 값을 로그로 남겨두면, 조기 종료가 '우리 판정 버그'인지
+                    //    '홈택스가 결과를 캡한 것'인지 다음 실행에서 바로 구분된다.
                     if (currentPage >= maxPage) {
-                        return 'LAST_PAGE';
+                        return 'LAST_PAGE:현재' + currentPage + '/페이저최대' + maxPage;
                     }
 
                     // 다음 버튼 클릭
@@ -1382,7 +1390,7 @@ public partial class Form1 : Form
                     }
 
                     nextBtn.click();
-                    return 'OK:' + (currentPage + 1);
+                    return 'OK:' + (currentPage + 1) + ' (페이저최대=' + maxPage + ')';
                 } catch (ex) {
                     return 'ERROR: ' + ex.message;
                 }
@@ -1396,7 +1404,7 @@ public partial class Form1 : Form
 
             LogMessage($"다음 페이지 이동: {cleanResult}");
 
-            if (cleanResult == "LAST_PAGE")
+            if (cleanResult.StartsWith("LAST_PAGE"))
             {
                 LogMessage("마지막 페이지에 도달했습니다.");
                 return false;
