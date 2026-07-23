@@ -302,6 +302,87 @@ public class DataMatcherTests
     }
 
     [Fact]
+    public void MatchPageOrdered_MixedGroup_AssignsInExcelOrder_AndFlags()
+    {
+        // Arrange - 같은 날짜·거래처·금액인데 공제/불공제가 갈리는 후불하이패스형 그룹
+        //           엑셀 순서: [공제, 불공제] → 웹 순서: [0행, 1행]에 그대로 배정되어야 함
+        var excelData = new List<CardTransactionData>
+        {
+            new CardTransactionData { 승인일자 = "2026-06-30", 카드번호 = "AAAA", 가맹점사업자번호 = "214-81-37726", 합계 = 2800, 공제여부결정 = "공제" },
+            new CardTransactionData { 승인일자 = "2026-06-30", 카드번호 = "BBBB", 가맹점사업자번호 = "214-81-37726", 합계 = 2800, 공제여부결정 = "불공제" },
+        };
+        var webData = new List<WebTableRow>
+        {
+            new WebTableRow { RowIndex = 0, AprvDt = "2026-06-30", MrntTxprDscmNoEncCntn = "214-81-37726", TotaTrsAmt = 2800, CurrentDdcYnNm = "불공제" },
+            new WebTableRow { RowIndex = 1, AprvDt = "2026-06-30", MrntTxprDscmNoEncCntn = "214-81-37726", TotaTrsAmt = 2800, CurrentDdcYnNm = "공제" },
+        };
+
+        // Act
+        var queue = _matcher.BuildExcelQueue(excelData);
+        var mixed = _matcher.FindMixedKeys(excelData);
+        var result = _matcher.MatchPageOrdered(queue, mixed, webData);
+
+        // Assert
+        Assert.Equal(2, result.MatchedCount);
+        Assert.Equal(2, result.Changes.Count);
+        var c0 = Assert.Single(result.Changes, c => c.RowIndex == 0);
+        var c1 = Assert.Single(result.Changes, c => c.RowIndex == 1);
+        Assert.Equal("공제", c0.공제여부);      // 웹 0행 ← 엑셀 첫 행(공제)
+        Assert.Equal("불공제", c1.공제여부);    // 웹 1행 ← 엑셀 둘째 행(불공제)
+        Assert.True(c0.NeedsManualReview);      // 섞인 그룹이므로 확인요망
+        Assert.True(c1.NeedsManualReview);
+    }
+
+    [Fact]
+    public void MatchPageOrdered_UniqueKey_NoManualFlag()
+    {
+        // Arrange - 겹치지 않는 단일 건은 기존과 동일하게 변경, 확인요망 아님
+        var excelData = new List<CardTransactionData>
+        {
+            new CardTransactionData { 승인일자 = "2026-06-30", 가맹점사업자번호 = "111-11-11111", 합계 = 1000, 공제여부결정 = "공제" },
+        };
+        var webData = new List<WebTableRow>
+        {
+            new WebTableRow { RowIndex = 5, AprvDt = "2026-06-30", MrntTxprDscmNoEncCntn = "111-11-11111", TotaTrsAmt = 1000, CurrentDdcYnNm = "불공제" },
+        };
+
+        // Act
+        var result = _matcher.MatchPageOrdered(
+            _matcher.BuildExcelQueue(excelData), _matcher.FindMixedKeys(excelData), webData);
+
+        // Assert
+        Assert.Single(result.Changes);
+        Assert.Equal("공제", result.Changes[0].공제여부);
+        Assert.False(result.Changes[0].NeedsManualReview);
+    }
+
+    [Fact]
+    public void MatchPageOrdered_SameDecisionDuplicates_NotFlagged_AndExtraWebSkipped()
+    {
+        // Arrange - 같은 키 2건이지만 둘 다 '불공제'(안 섞임) + 웹이 엑셀보다 1건 많음
+        var excelData = new List<CardTransactionData>
+        {
+            new CardTransactionData { 승인일자 = "2026-06-30", 가맹점사업자번호 = "222-22-22222", 합계 = 500, 공제여부결정 = "불공제" },
+            new CardTransactionData { 승인일자 = "2026-06-30", 가맹점사업자번호 = "222-22-22222", 합계 = 500, 공제여부결정 = "불공제" },
+        };
+        var webData = new List<WebTableRow>
+        {
+            new WebTableRow { RowIndex = 0, AprvDt = "2026-06-30", MrntTxprDscmNoEncCntn = "222-22-22222", TotaTrsAmt = 500, CurrentDdcYnNm = "공제" },
+            new WebTableRow { RowIndex = 1, AprvDt = "2026-06-30", MrntTxprDscmNoEncCntn = "222-22-22222", TotaTrsAmt = 500, CurrentDdcYnNm = "공제" },
+            new WebTableRow { RowIndex = 2, AprvDt = "2026-06-30", MrntTxprDscmNoEncCntn = "222-22-22222", TotaTrsAmt = 500, CurrentDdcYnNm = "공제" }, // 엑셀보다 1건 많음
+        };
+
+        // Act
+        var result = _matcher.MatchPageOrdered(
+            _matcher.BuildExcelQueue(excelData), _matcher.FindMixedKeys(excelData), webData);
+
+        // Assert
+        Assert.Equal(2, result.MatchedCount);   // 웹 3건 중 엑셀과 대응된 2건만
+        Assert.Equal(2, result.Changes.Count);  // 둘 다 공제→불공제
+        Assert.All(result.Changes, c => Assert.False(c.NeedsManualReview)); // 같은 결정이라 확인요망 아님
+    }
+
+    [Fact]
     public void GetSkippedSimpleTaxpayerCount_WithSimpleTaxpayerButSameValue_ReturnsZero()
     {
         // Arrange - 간이과세자지만 공제여부가 같으면 카운트 안 함

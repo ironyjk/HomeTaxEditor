@@ -373,6 +373,19 @@ public partial class Form1 : Form
             int totalExcelCount = excelData.Count; // 전체 엑셀 데이터 건수
             bool anyDataSeen = false; // 데이터를 한 번이라도 읽었는지 (로그인/메뉴 진입 확인용)
 
+            // 순서 기반(하이브리드) 매칭 준비:
+            //  - 같은 키(날짜+사업자번호+금액)가 여러 건이면 엑셀 "파일 순서대로" 웹에 1:1 배정.
+            //    (후불하이패스처럼 같은 날 같은 금액이 카드(차량)만 달라 공제/불공제가 갈리는 건을 순서로 구분)
+            //  - excelQueue는 페이지·분기를 넘나들며 상태가 유지되어야 하므로 여기서 한 번만 만든다.
+            var excelQueue = _dataMatcher.BuildExcelQueue(excelData);
+            var mixedKeys = _dataMatcher.FindMixedKeys(excelData);
+            int manualReviewCount = 0;
+            var manualReviewLog = new List<string>();
+            if (mixedKeys.Count > 0)
+            {
+                LogMessage($"ℹ️ 같은 날짜·거래처·금액인데 공제/불공제가 갈리는 그룹 {mixedKeys.Count}개 감지 → 엑셀 순서대로 자동판정 후 '확인요망'으로 표시합니다.");
+            }
+
             foreach (var (year, quarter) in quarters)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -428,10 +441,12 @@ public partial class Form1 : Form
                     }
                     previousPageSignature = currentPageSignature;
 
-                    // 데이터 매칭
-                    var matchedChanges = _dataMatcher.MatchData(excelData, webData);
-                    var (total, matched, needChange) = _dataMatcher.GetMatchingStats(excelData, webData, matchedChanges);
-                    var skippedSimpleTaxpayer = _dataMatcher.GetSkippedSimpleTaxpayerCount(excelData, webData);
+                    // 데이터 매칭 (순서 기반 하이브리드: 같은 키 다건이면 엑셀 순서대로 배정)
+                    var pageResult = _dataMatcher.MatchPageOrdered(excelQueue, mixedKeys, webData);
+                    var matchedChanges = pageResult.Changes;
+                    int matched = pageResult.MatchedCount;
+                    int needChange = matchedChanges.Count;
+                    int skippedSimpleTaxpayer = pageResult.SkippedSimpleTaxpayer;
 
                     totalMatchedCount += matched;
 
@@ -448,9 +463,16 @@ public partial class Form1 : Form
                     int progressPercentage = 30 + (int)((double)totalMatchedCount / totalExcelCount * 70);
                     progressBar.Value = Math.Min(progressPercentage, 100);
 
-                    // 변경 내역 테이블에 추가
+                    // 변경 내역 테이블에 추가 (섞인 그룹은 '확인요망'으로 표시)
                     foreach (var change in matchedChanges)
                     {
+                        string status = "대기";
+                        if (change.NeedsManualReview)
+                        {
+                            status = "⚠️확인요망(카드상이)";
+                            manualReviewCount++;
+                            manualReviewLog.Add($"{change.ExcelData.승인일자} | {change.ExcelData.합계:N0}원 | 카드 {change.ExcelData.카드번호} | {change.WebData.CurrentDdcYnNm}→{change.공제여부}");
+                        }
                         changesTable.Rows.Add(
                             change.ExcelData.승인일자, // 날짜
                             change.ExcelData.가맹점사업자번호, // 가맹점사업자번호
@@ -458,7 +480,7 @@ public partial class Form1 : Form
                             change.ExcelData.합계.ToString("N0"), // 금액
                             change.WebData.CurrentDdcYnNm, // 변경 전
                             change.공제여부, // 변경 후
-                            "대기" // 상태
+                            status // 상태
                         );
                     }
 
@@ -493,6 +515,23 @@ public partial class Form1 : Form
             progressBar.Value = 100;
             LogMessage($"=== 모든 페이지 처리 완료 ===");
             LogMessage($"총 {totalMatchedCount}건 매칭, {totalAppliedCount}건 변경 적용");
+
+            // 순서로 자동판정한 '확인요망' 건 안내 (카드 달라 값으로는 구분 불가)
+            if (manualReviewCount > 0)
+            {
+                LogMessage($"⚠️ 카드가 달라 '엑셀 순서'로 자동판정한 건 {manualReviewCount}건 — 변경내역에서 '확인요망(카드상이)'으로 표시됨. 아래 건은 꼭 확인하세요:");
+                foreach (var line in manualReviewLog)
+                {
+                    LogMessage($"    · {line}");
+                }
+            }
+
+            // 엑셀엔 있으나 홈택스 목록에서 못 만난 건 (참고: 조회기간/간이 여부 확인)
+            int leftover = excelQueue.Values.Sum(q => q.Count);
+            if (leftover > 0)
+            {
+                LogMessage($"ℹ️ 엑셀엔 있으나 홈택스 목록에서 매칭되지 않은 건: {leftover}건 (조회기간·간이 여부를 확인하세요)");
+            }
 
             if (totalAppliedCount == 0)
             {
