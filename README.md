@@ -34,8 +34,11 @@
 ## 요구사항
 
 - Windows 10 이상
-- .NET 8.0 Desktop Runtime (직접 빌드 시 .NET 8.0 SDK)
+- **.NET 8.0 Desktop Runtime** — 윈도우에 기본 설치되어 있지 않습니다(구형 .NET Framework와 다른 계열). 없으면 exe 실행 시 설치 안내가 뜹니다.
+  - 다운로드: https://dotnet.microsoft.com/download/dotnet/8.0 → **".NET Desktop Runtime 8.0"** 의 **Windows x64** 설치본을 받으세요. (그냥 "Runtime"이 아니라 반드시 **Desktop Runtime**)
 - Microsoft Edge WebView2 Runtime (대개 최신 Windows에 기본 설치됨)
+
+> 💡 런타임 설치가 번거롭다면, 런타임을 내장한 self-contained 실행본을 쓰면 설치 없이 바로 실행됩니다(대신 파일 용량이 큽니다). 필요하면 이슈로 요청하세요.
 
 ---
 
