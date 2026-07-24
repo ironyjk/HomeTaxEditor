@@ -308,13 +308,13 @@ public class DataMatcherTests
         //           엑셀 순서: [공제, 불공제] → 웹 순서: [0행, 1행]에 그대로 배정되어야 함
         var excelData = new List<CardTransactionData>
         {
-            new CardTransactionData { 승인일자 = "2026-06-30", 카드번호 = "AAAA", 가맹점사업자번호 = "214-81-37726", 합계 = 2800, 공제여부결정 = "공제" },
-            new CardTransactionData { 승인일자 = "2026-06-30", 카드번호 = "BBBB", 가맹점사업자번호 = "214-81-37726", 합계 = 2800, 공제여부결정 = "불공제" },
+            new CardTransactionData { 승인일자 = "2026-06-30", 카드번호 = "AAAA", 가맹점사업자번호 = "214-81-00000", 합계 = 2800, 공제여부결정 = "공제" },
+            new CardTransactionData { 승인일자 = "2026-06-30", 카드번호 = "BBBB", 가맹점사업자번호 = "214-81-00000", 합계 = 2800, 공제여부결정 = "불공제" },
         };
         var webData = new List<WebTableRow>
         {
-            new WebTableRow { RowIndex = 0, AprvDt = "2026-06-30", MrntTxprDscmNoEncCntn = "214-81-37726", TotaTrsAmt = 2800, CurrentDdcYnNm = "불공제" },
-            new WebTableRow { RowIndex = 1, AprvDt = "2026-06-30", MrntTxprDscmNoEncCntn = "214-81-37726", TotaTrsAmt = 2800, CurrentDdcYnNm = "공제" },
+            new WebTableRow { RowIndex = 0, AprvDt = "2026-06-30", MrntTxprDscmNoEncCntn = "214-81-00000", TotaTrsAmt = 2800, CurrentDdcYnNm = "불공제" },
+            new WebTableRow { RowIndex = 1, AprvDt = "2026-06-30", MrntTxprDscmNoEncCntn = "214-81-00000", TotaTrsAmt = 2800, CurrentDdcYnNm = "공제" },
         };
 
         // Act

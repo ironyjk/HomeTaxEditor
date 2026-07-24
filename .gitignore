@@ -63,3 +63,7 @@ $RECYCLE.BIN/
 
 # Claude Code settings
 .claude/settings.local.json
+
+# Publish / distribution output
+[Pp]ublish/
+*.zip
