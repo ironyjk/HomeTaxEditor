@@ -8,6 +8,15 @@
 
 ---
 
+## 다운로드
+
+받아서 압축을 풀고 `HomeTaxEditor.exe` 를 실행하면 됩니다. 둘 중 하나를 선택하세요.
+
+- **[⬇️ 설치 불필요 버전 (standalone, 약 77MB)](https://github.com/ironyjk/HomeTaxEditor/releases/download/v1.0.0/HomeTaxEditor-v1.0.0-win-x64-standalone.zip)** — 런타임이 내장되어 **설치 없이 바로 실행**됩니다. IT에 익숙하지 않다면 이걸 받으세요.
+- **[⬇️ 가벼운 버전 (lite, 약 11MB)](https://github.com/ironyjk/HomeTaxEditor/releases/download/v1.0.0/HomeTaxEditor-v1.0.0-win-x64-lite.zip)** — 용량이 작지만 실행에 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)이 필요합니다.
+
+> 최신 버전·전체 목록은 [릴리스 페이지](https://github.com/ironyjk/HomeTaxEditor/releases/latest)에서 확인하세요.
+
 ## 무엇을 해결하나
 
 홈택스에 사업용 신용카드를 등록하면 카드 사용내역이 자동으로 올라오지만, 공제/불공제 초기 분류가 실제와 다른 경우가 많습니다(비영업용 승용차 주유, 접대성 경비, 후불하이패스 등). 건수가 수백~수천 건이면 홈택스 화면에서 한 줄씩 바꾸는 게 큰 부담입니다.
@@ -38,7 +47,7 @@
   - 다운로드: https://dotnet.microsoft.com/download/dotnet/8.0 → **".NET Desktop Runtime 8.0"** 의 **Windows x64** 설치본을 받으세요. (그냥 "Runtime"이 아니라 반드시 **Desktop Runtime**)
 - Microsoft Edge WebView2 Runtime (대개 최신 Windows에 기본 설치됨)
 
-> 💡 런타임 설치가 번거롭다면, 런타임을 내장한 self-contained 실행본을 쓰면 설치 없이 바로 실행됩니다(대신 파일 용량이 큽니다). 필요하면 이슈로 요청하세요.
+> 💡 런타임 설치가 번거롭다면 위 [다운로드](#다운로드)의 **설치 불필요(standalone)** 버전을 받으세요. 런타임이 내장되어 바로 실행됩니다(용량만 큽니다).
 
 ---
 
